@@ -1,0 +1,12 @@
+cd C:\Users\Dell\ollama-agent
+
+git init
+git add .
+git commit -m "Initial commit"
+
+## after creating repo
+
+git remote add origin https://github.com/navneetverma0912/ollama-agent.git
+
+git branch -M main
+git push -u origin main

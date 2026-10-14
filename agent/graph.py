@@ -11,6 +11,8 @@ from agent.router import route_question
 from rag.retriever import search_policy, answer_from_context
 from tools.employee import get_employee
 from tools.leave import get_leave_balance, create_leave_request
+from tools.public_apis import call_public_api
+from tools.api_client import PublicAPIError
 from config import settings
 
 def input_guardrail(state: AgentState):
@@ -31,6 +33,8 @@ def router_node(state: AgentState):
         "intent": decision.intent,
         "employee_id": decision.employee_id,
         "resolved_input": decision.resolved_question,
+        "api_service": decision.api_service,
+        "api_query": decision.api_query,
     }
 
 def policy_node(state: AgentState):
@@ -76,6 +80,15 @@ def general_node(state: AgentState):
     ])
     return {"answer": validate_output(response.content)}
 
+def public_api_node(state: AgentState):
+    service = state.get("api_service", "")
+    query = state.get("api_query", "")
+    try:
+        answer = call_public_api(service, query)
+    except PublicAPIError as exc:
+        answer = f"{service.title() or 'Public API'} lookup failed: {exc}"
+    return {"answer": validate_output(answer)}
+
 def output_guardrail(state: AgentState):
     answer = state.get("answer", "No answer was produced.")
     if any(token in answer for token in ["BEGIN PRIVATE KEY", "sk-", "AIza"]):
@@ -94,15 +107,16 @@ def build_graph():
     graph.add_node("employee", employee_node)
     graph.add_node("leave_balance", leave_balance_node)
     graph.add_node("leave_request", leave_request_node)
+    graph.add_node("public_api", public_api_node)
     graph.add_node("general", general_node)
     graph.add_node("output_guardrail", output_guardrail)
     graph.add_edge(START, "input_guardrail")
     graph.add_edge("input_guardrail", "router")
     graph.add_conditional_edges("router", route_after_router, {
         "policy": "policy", "employee": "employee", "leave_balance": "leave_balance",
-        "leave_request": "leave_request", "general": "general",
+        "leave_request": "leave_request", "public_api": "public_api", "general": "general",
     })
-    for node in ["policy", "employee", "leave_balance", "leave_request", "general"]:
+    for node in ["policy", "employee", "leave_balance", "leave_request", "public_api", "general"]:
         graph.add_edge(node, "output_guardrail")
     graph.add_edge("output_guardrail", END)
     return graph.compile(checkpointer=MemorySaver())
