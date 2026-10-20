@@ -5,3 +5,10 @@ export const getChats=async(employee_id="EMP001")=>(await api.get("/api/chats",{
 export const getChatHistory=async(thread_id,employee_id="EMP001")=>(await api.get(`/api/chats/${thread_id}`,{params:{employee_id}})).data;
 export const getEmployee=async(id="EMP001")=>(await api.get(`/api/employee/${id}`)).data;
 export const getLeaveBalance=async(id="EMP001")=>(await api.get(`/api/leave-balance/${id}`)).data;
+export const uploadDocuments=async(files,knowledgeBaseId)=>{
+  const formData=new FormData();
+  files.forEach(file=>formData.append("files",file));
+  if(knowledgeBaseId)formData.append("knowledge_base_id",knowledgeBaseId);
+  return (await api.post("/api/documents",formData)).data;
+};
+export const chatWithDocuments=async(knowledge_base_id,question,history=[])=>(await api.post("/api/documents/chat",{knowledge_base_id,question,history})).data;

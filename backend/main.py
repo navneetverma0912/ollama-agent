@@ -1,10 +1,15 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
-from uuid import uuid4
+from typing import Literal, Optional
+from uuid import UUID, uuid4
 from agent.graph import build_graph
 from langgraph.types import Command
+from rag.uploads import (
+    InvalidUploadedDocumentError,
+    answer_uploaded_question,
+    ingest_uploaded_files,
+)
 from database.conversation import (
     create_chat_session,
     get_chat_messages,
@@ -19,6 +24,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 graph = build_graph()
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=2, max_length=1000)
@@ -29,6 +35,15 @@ class ApprovalRequest(BaseModel):
     thread_id: str
     approved: bool
     employee_id: str = "EMP001"
+
+class DocumentChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=1000)
+
+class DocumentChatRequest(BaseModel):
+    knowledge_base_id: str
+    question: str = Field(min_length=1, max_length=1000)
+    history: list[DocumentChatMessage] = Field(default_factory=list, max_length=8)
 
 def format_result(result, thread_id):
     if "__interrupt__" in result:
@@ -68,6 +83,56 @@ def chat(req: ChatRequest):
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+@app.post("/api/documents")
+async def upload_documents(
+    files: list[UploadFile] = File(...),
+    knowledge_base_id: Optional[str] = Form(None),
+):
+    if not files:
+        raise HTTPException(400, "Choose at least one PDF or TXT file.")
+    if len(files) > 10:
+        raise HTTPException(400, "Upload no more than 10 files at a time.")
+
+    if knowledge_base_id:
+        try:
+            knowledge_base_id = str(UUID(knowledge_base_id))
+        except ValueError as e:
+            raise HTTPException(400, "Invalid document workspace.") from e
+    else:
+        knowledge_base_id = str(uuid4())
+
+    uploads = []
+    for file in files:
+        filename = file.filename or ""
+        if not filename.lower().endswith((".pdf", ".txt")):
+            raise HTTPException(400, f"{filename or 'File'} must be a PDF or TXT file.")
+        content = await file.read(MAX_UPLOAD_BYTES + 1)
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(413, f"{filename} exceeds the 10 MB file limit.")
+        uploads.append((filename, content))
+
+    try:
+        result = ingest_uploaded_files(knowledge_base_id, uploads)
+    except InvalidUploadedDocumentError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"knowledge_base_id": knowledge_base_id, **result}
+
+@app.post("/api/documents/chat")
+def document_chat(req: DocumentChatRequest):
+    try:
+        UUID(req.knowledge_base_id)
+    except ValueError as e:
+        raise HTTPException(400, "Invalid document workspace.") from e
+    history = [(message.role, message.content) for message in req.history]
+    answer, sources = answer_uploaded_question(
+        req.knowledge_base_id,
+        req.question,
+        history,
+    )
+    if not sources:
+        raise HTTPException(404, "No uploaded documents found in this workspace.")
+    return {"answer": answer, "sources": sources}
 
 @app.post("/api/approval")
 def approval(req: ApprovalRequest):

@@ -7,6 +7,7 @@ Features:
 - Employee and leave tools
 - Free public API integrations for current weather and music search
 - RAG over company policy documents
+- A dedicated document-chat page for uploading PDF/TXT files and asking questions grounded in their contents
 - Multi-turn conversation context with per-thread LangGraph memory
 - Persistent chat sessions and messages in SQLite, with a reopenable chat list
 - Input/output guardrails
@@ -41,6 +42,23 @@ Run:
 ```bash
 python app.py
 ```
+
+To use the web interface, run the API and frontend in separate terminals:
+
+```powershell
+pip install -r backend/requirements.txt
+uvicorn backend.main:app --reload
+```
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open **Document Chat** to upload PDF or UTF-8 TXT files (up to 10 files, 10 MB
+each) and ask questions about their contents. Each browser workspace gets a
+separate document index, isolated from the shared company-policy index.
 
 Try:
 - `What is the work from home policy?`
